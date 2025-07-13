@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UFO 미니게임</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Courier New', monospace;
+            color: white;
+            overflow: hidden;
+        }
+
+        #gameContainer {
+            position: relative;
+            border: 2px solid #444;
+            background: #111;
+        }
+
+        #gameCanvas {
+            display: block;
+            background: linear-gradient(180deg, #1a0f2e 0%, #2d1b3d 50%, #4a2c5a 100%);
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+        }
+
+        #ui {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 2px 2px 0px #000;
+        }
+
+        #startScreen, #gameOverScreen, #gameClearScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 24px;
+            text-align: center;
+        }
+
+        #startScreen h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            color: #ff6b6b;
+        }
+
+        #gameOverScreen h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            color: #ff4444;
+        }
+
+        #gameClearScreen h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            color: #44ff44;
+        }
+
+        .instruction {
+            font-size: 18px;
+            margin-top: 20px;
+            opacity: 0.8;
+        }
+
+        .score {
+            font-size: 20px;
+            margin: 10px 0;
+            color: #ffff88;
+        }
+
+        @media (max-width: 768px) {
+            #gameContainer {
+                width: 100vw;
+                height: 60vh;
+            }
+            
+            #ui {
+                font-size: 16px;
+                top: 10px;
+                right: 10px;
+            }
+            
+            #startScreen, #gameOverScreen, #gameClearScreen {
+                font-size: 20px;
+            }
+            
+            #startScreen h1, #gameOverScreen h1, #gameClearScreen h1 {
+                font-size: 36px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+        <div id="ui">
+            <div>생존 시간: <span id="timer">0</span>초</div>
+            <div>최고 기록: <span id="bestScore">0</span>초</div>
+        </div>
+        
+        <div id="startScreen">
+            <h1>UFO 미니게임</h1>
+            <div class="instruction">스페이스바를 눌러 게임 시작</div>
+            <div class="instruction">(모바일: 터치)</div>
+            <div class="instruction" style="margin-top: 30px; font-size: 14px;">
+                조작법:<br>
+                스페이스바 1회 = 1단 점프<br>
+                스페이스바 빠르게 2회 = 2단 점프
+            </div>
+        </div>
+        
+        <div id="gameOverScreen" style="display: none;">
+            <h1>Game Over</h1>
+            <div class="score">생존 시간: <span id="finalScore">0</span>초</div>
+            <div class="instruction">스페이스바를 눌러 재시작</div>
+            <div class="instruction">(모바일: 터치)</div>
+        </div>
+        
+        <div id="gameClearScreen" style="display: none;">
+            <h1>Game Clear!</h1>
+            <div class="score">축하합니다! 5분을 버텼습니다!</div>
+            <div class="instruction">스페이스바를 눌러 재시작</div>
+            <div class="instruction">(모바일: 터치)</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const ui = document.getElementById('ui');
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const gameClearScreen = document.getElementById('gameClearScreen');
+        const timerDisplay = document.getElementById('timer');
+        const finalScoreDisplay = document.getElementById('finalScore');
+        const bestScoreDisplay = document.getElementById('bestScore');
+
+        // 게임 상태
+        let gameState = 'start';
+        let gameTime = 0;
+        let lastTime = 0;
+        let bestScore = localStorage.getItem('bestScore') || 0;
+        bestScoreDisplay.textContent = bestScore;
+
+        // 키 입력 및 터치 처리
+        let keys = {};
+        let lastSpaceTime = 0;
+        let spaceCount = 0;
+        let lastTouchTime = 0;
+        let touchCount = 0;
+
+        // 게임 객체들
+        let ufo = {
+            x: 100,
+            y: 300,
+            width: 40,
+            height: 20,
+            velocityY: 0,
+            onGround: true,
+            jumpCount: 0,
+            rotation: 0,
+            rotationSpeed: 0
+        };
+
+        let monsters = [];
+        let terrain = [];
+        let particles = [];
+        let backgroundOffset = 0;
+        let gameSpeed = 2;
+        let nextMonsterTime = 0;
+
+        // UFO 도트맵 (40x20)
+        const ufoPixels = [
+            [0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0],
+            [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+            [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+            [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+            [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+            [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+            [0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+        ];
+
+        // 몬스터 도트맵 (작은 몬스터 - 30x40)
+        const monsterSmallPixels = [
+            [0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0],
+            [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],
+            [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+            [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+            [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1],
+            [1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1],
+            [1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1],
+            [1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1],
+            [1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+        ];
+
+        // 큰 몬스터 도트맵 (30x80)
+        const monsterLargePixels = Array(80).fill().map((_, i) => {
+            if (i < 40) {
+                return Array(30).fill().map((_, j) => {
+                    if (j >= 10 && j < 20) return 1;
+                    if (i >= 5 && i < 35 && j >= 8 && j < 22) return 1;
+                    if (i >= 10 && i < 30 && j >= 6 && j < 24) return 1;
+                    if (i >= 15 && i < 25 && j >= 4 && j < 26) return 1;
+                    if (i >= 18 && i < 22 && j >= 2 && j < 28) return 1;
+                    return 0;
+                });
+            } else {
+                return Array(30).fill().map((_, j) => {
+                    if (i >= 40 && i < 60 && j >= 8 && j < 22) return 1;
+                    if (i >= 60 && j >= 5 && j < 25) return 0;
+                    return 0;
+                });
+            }
+        });
+
+        // 화면 크기 조정
+        function resizeCanvas() {
+            const container = document.getElementById('gameContainer');
+            if (window.innerWidth < 768) {
+                canvas.style.width = '100vw';
+                canvas.style.height = (window.innerWidth * 0.5) + 'px';
+            } else {
+                canvas.style.width = '800px';
+                canvas.style.height = '400px';
+            }
+        }
+
+        // 지형 생성
+        function generateTerrain() {
+            terrain = [];
+            for (let x = 0; x < canvas.width + 100; x += 4) {
+                terrain.push({
+                    x: x,
+                    height: 350 + Math.sin(x * 0.02) * 20 + Math.sin(x * 0.05) * 10
+                });
+            }
+        }
+
+        // 도트맵으로 스프라이트 그리기
+        function drawPixelSprite(pixels, x, y, color = '#00ff00', scale = 1) {
+            ctx.fillStyle = color;
+            for (let row = 0; row < pixels.length; row++) {
+                for (let col = 0; col < pixels[row].length; col++) {
+                    if (pixels[row][col]) {
+                        ctx.fillRect(
+                            Math.floor(x + col * scale), 
+                            Math.floor(y + row * scale), 
+                            scale, 
+                            scale
+                        );
+                    }
+                }
+            }
+        }
+
+        // UFO 그리기
+        function drawUFO() {
+            ctx.save();
+            
+            if (ufo.rotation !== 0) {
+                ctx.translate(ufo.x + ufo.width/2, ufo.y + ufo.height/2);
+                ctx.rotate(ufo.rotation);
+                ctx.translate(-(ufo.width/2), -(ufo.height/2));
+                drawPixelSprite(ufoPixels, 0, 0, '#00ffff', 1);
+            } else {
+                drawPixelSprite(ufoPixels, ufo.x, ufo.y, '#00ffff', 1);
+            }
+            
+            ctx.restore();
+
+            // 추진 효과
+            if (!ufo.onGround || ufo.velocityY < 0) {
+                for (let i = 0; i < 3; i++) {
+                    particles.push({
+                        x: ufo.x + ufo.width/2 + (Math.random() - 0.5) * 10,
+                        y: ufo.y + ufo.height + 2,
+                        velocityX: (Math.random() - 0.5) * 2 - gameSpeed,
+                        velocityY: Math.random() * 2,
+                        life: 20 + Math.random() * 10,
+                        maxLife: 30,
+                        color: `hsl(${Math.random() * 60 + 180}, 100%, 70%)`
+                    });
+                }
+            }
+        }
+
+        // 몬스터 그리기
+        function drawMonster(monster) {
+            const pixels = monster.type === 'small' ? monsterSmallPixels : monsterLargePixels;
+            const color = monster.type === 'small' ? '#ff4444' : '#ff0000';
+            drawPixelSprite(pixels, monster.x, monster.y, color, 1);
+        }
+
+        // 배경 그리기
+        function drawBackground() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#1a0f2e');
+            gradient.addColorStop(0.5, '#2d1b3d');
+            gradient.addColorStop(1, '#4a2c5a');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 별들
+            ctx.fillStyle = '#ffffff';
+            for (let i = 0; i < 50; i++) {
+                const x = (i * 37 + backgroundOffset * 0.1) % (canvas.width + 50) - 50;
+                const y = (i * 17) % canvas.height;
+                ctx.fillRect(x, y, 1, 1);
+            }
+
+            // 지형 그리기
+            ctx.fillStyle = '#8B4513';
+            ctx.beginPath();
+            ctx.moveTo(-50, canvas.height);
+            
+            for (let i = 0; i < terrain.length; i++) {
+                const point = terrain[i];
+                const x = point.x - backgroundOffset;
+                ctx.lineTo(x, point.height);
+            }
+            
+            ctx.lineTo(canvas.width + 50, canvas.height);
+            ctx.lineTo(-50, canvas.height);
+            ctx.fill();
+        }
+
+        // 파티클 시스템
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const particle = particles[i];
+                particle.x += particle.velocityX;
+                particle.y += particle.velocityY;
+                particle.life--;
+                
+                if (particle.life <= 0) {
+                    particles.splice(i, 1);
+                } else {
+                    const alpha = particle.life / particle.maxLife;
+                    ctx.fillStyle = particle.color.replace(')', `, ${alpha})`).replace('hsl', 'hsla');
+                    ctx.fillRect(particle.x, particle.y, 2, 2);
+                }
+            }
+        }
+
+        // 몬스터 생성
+        function spawnMonster() {
+            const now = Date.now();
+            if (now < nextMonsterTime) return;
+
+            let type = 'small';
+            let height = 40;
+            let width = 30;
+            
+            if (gameTime >= 60) {
+                if (gameTime >= 120) {
+                    type = Math.random() > 0.5 ? 'small' : 'large';
+                } else {
+                    type = 'large';
+                }
+            }
+            
+            if (type === 'large') {
+                height = 80;
+            }
+
+            monsters.push({
+                x: canvas.width,
+                y: 320 - height,
+                width: width,
+                height: height,
+                type: type
+            });
+
+            nextMonsterTime = now + 1500 + Math.random() * 2000;
+        }
+
+        // 충돌 감지
+        function checkCollision(rect1, rect2) {
+            return rect1.x < rect2.x + rect2.width &&
+                   rect1.x + rect1.width > rect2.x &&
+                   rect1.y < rect2.y + rect2.height &&
+                   rect1.y + rect1.height > rect2.y;
+        }
+
+        // UFO 업데이트
+        function updateUFO(deltaTime) {
+            const gravity = 1200;
+            const jumpSpeed = -400;
+            const groundY = 300;
+
+            ufo.velocityY += gravity * deltaTime;
+            ufo.y += ufo.velocityY * deltaTime;
+
+            if (ufo.y >= groundY) {
+                ufo.y = groundY;
+                ufo.velocityY = 0;
+                ufo.onGround = true;
+                ufo.jumpCount = 0;
+                ufo.rotation = 0;
+                ufo.rotationSpeed = 0;
+            } else {
+                ufo.onGround = false;
+            }
+
+            if (ufo.rotationSpeed !== 0) {
+                ufo.rotation += ufo.rotationSpeed * deltaTime;
+            }
+
+            const currentTime = Date.now();
+            
+            if (keys[' '] && !keys.spaceProcessed) {
+                keys.spaceProcessed = true;
+                
+                if (currentTime - lastSpaceTime < 300 && spaceCount === 1) {
+                    if (ufo.jumpCount < 2) {
+                        ufo.velocityY = jumpSpeed;
+                        ufo.jumpCount = 2;
+                        ufo.rotationSpeed = 10;
+                        spaceCount = 0;
+                    }
+                } else {
+                    if (ufo.jumpCount < 1) {
+                        ufo.velocityY = jumpSpeed;
+                        ufo.jumpCount = 1;
+                        spaceCount = 1;
+                        lastSpaceTime = currentTime;
+                    }
+                }
+            }
+        }
+
+        // 몬스터 업데이트
+        function updateMonsters() {
+            for (let i = monsters.length - 1; i >= 0; i--) {
+                const monster = monsters[i];
+                monster.x -= gameSpeed;
+                
+                if (monster.x + monster.width < 0) {
+                    monsters.splice(i, 1);
+                }
+            }
+        }
+
+        // 게임 속도 업데이트
+        function updateGameSpeed() {
+            if (gameTime >= 240) {
+                gameSpeed = 4;
+            } else if (gameTime >= 180) {
+                gameSpeed = 3;
+            } else if (gameTime >= 120) {
+                gameSpeed = 2.4;
+            } else {
+                gameSpeed = 2;
+            }
+        }
+
+        // 게임 클리어 체크
+        function checkGameClear() {
+            if (gameTime >= 300 && gameState === 'playing') {
+                gameState = 'gameCleared';
+                gameClearScreen.style.display = 'flex';
+                
+                const launchAnimation = setInterval(() => {
+                    ufo.x += 3;
+                    ufo.y -= 2;
+                    ufo.rotation += 0.1;
+                    
+                    if (ufo.x > canvas.width) {
+                        clearInterval(launchAnimation);
+                    }
+                }, 16);
+            }
+        }
+
+        // 게임 초기화
+        function resetGame() {
+            ufo.x = 100;
+            ufo.y = 300;
+            ufo.velocityY = 0;
+            ufo.onGround = true;
+            ufo.jumpCount = 0;
+            ufo.rotation = 0;
+            ufo.rotationSpeed = 0;
+            
+            monsters = [];
+            particles = [];
+            gameTime = 0;
+            gameSpeed = 2;
+            backgroundOffset = 0;
+            nextMonsterTime = 0;
+            lastSpaceTime = 0;
+            spaceCount = 0;
+            
+            generateTerrain();
+        }
+
+        // 게임 시작
+        function startGame() {
+            gameState = 'playing';
+            startScreen.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+            gameClearScreen.style.display = 'none';
+            resetGame();
+        }
+
+        // 게임 오버
+        function gameOver() {
+            gameState = 'gameOver';
+            gameOverScreen.style.display = 'flex';
+            finalScoreDisplay.textContent = Math.floor(gameTime);
+            
+            if (gameTime > bestScore) {
+                bestScore = Math.floor(gameTime);
+                localStorage.setItem('bestScore', bestScore);
+                bestScoreDisplay.textContent = bestScore;
+            }
+        }
+
+        // 메인 게임 루프
+        function gameLoop(currentTime) {
+            const deltaTime = Math.min((currentTime - lastTime) / 1000, 0.016);
+            lastTime = currentTime;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (gameState === 'playing') {
+                gameTime += deltaTime;
+                timerDisplay.textContent = Math.floor(gameTime);
+
+                backgroundOffset += gameSpeed;
+                updateGameSpeed();
+                updateUFO(deltaTime);
+                spawnMonster();
+                updateMonsters();
+
+                for (const monster of monsters) {
+                    if (checkCollision(ufo, monster)) {
+                        gameOver();
+                        break;
+                    }
+                }
+
+                checkGameClear();
+            }
+
+            drawBackground();
+            drawUFO();
+            for (const monster of monsters) {
+                drawMonster(monster);
+            }
+            updateParticles();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 이벤트 리스너
+        document.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+            
+            if (e.key === ' ') {
+                e.preventDefault();
+                
+                if (gameState === 'start') {
+                    startGame();
+                } else if (gameState === 'gameOver' || gameState === 'gameCleared') {
+                    gameState = 'start';
+                    startScreen.style.display = 'flex';
+                    gameOverScreen.style.display = 'none';
+                    gameClearScreen.style.display = 'none';
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+            keys.spaceProcessed = false;
+        });
+
+        // 터치 이벤트
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const currentTime = Date.now();
+            
+            if (gameState === 'start') {
+                startGame();
+            } else if (gameState === 'gameOver' || gameState === 'gameCleared') {
+                gameState = 'start';
+                startScreen.style.display = 'flex';
+                gameOverScreen.style.display = 'none';
+                gameClearScreen.style.display = 'none';
+            } else if (gameState === 'playing') {
+                if (currentTime - lastTouchTime < 300 && touchCount === 1) {
+                    if (ufo.jumpCount < 2) {
+                        ufo.velocityY = -400;
+                        ufo.jumpCount = 2;
+                        ufo.rotationSpeed = 10;
+                        touchCount = 0;
+                    }
+                } else {
+                    if (ufo.jumpCount < 1) {
+                        ufo.velocityY = -400;
+                        ufo.jumpCount = 1;
+                        touchCount = 1;
+                        lastTouchTime = currentTime;
+                    }
+                }
+            }
+        });
+
+        // 화면 크기 조정
+        window.addEventListener('resize', resizeCanvas);
+
+        // 초기 설정
+        resizeCanvas();
+        generateTerrain();
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
