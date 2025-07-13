@@ -418,6 +418,7 @@
             let type = 'small';
             let height = 40;
             let width = 30;
+            let groundY = 320; // 지면 위치
             
             if (gameTime >= 60) {
                 if (gameTime >= 120) {
@@ -427,13 +428,20 @@
                 }
             }
             
+            // 몬스터 크기와 위치 조정
             if (type === 'large') {
                 height = 80;
+                // 큰 몬스터는 지면에서 시작 (2단 점프로만 피할 수 있게)
+                groundY = 320 - height;
+            } else {
+                height = 40;
+                // 작은 몬스터는 약간 높게 배치 (1단 점프로 피할 수 있게)
+                groundY = 320 - height + 20; // 지면에서 20px 위로
             }
 
             monsters.push({
                 x: canvas.width,
-                y: 320 - height,
+                y: groundY,
                 width: width,
                 height: height,
                 type: type
@@ -453,7 +461,7 @@
         // UFO 업데이트
         function updateUFO(deltaTime) {
             const gravity = 1200;
-            const jumpSpeed = -400;
+            const jumpSpeed = -450; // 점프력을 약간 증가
             const groundY = 300;
 
             ufo.velocityY += gravity * deltaTime;
@@ -481,7 +489,7 @@
                 
                 if (currentTime - lastSpaceTime < 300 && spaceCount === 1) {
                     if (ufo.jumpCount < 2) {
-                        ufo.velocityY = jumpSpeed;
+                        ufo.velocityY = jumpSpeed * 1.3; // 2단 점프는 더 높게
                         ufo.jumpCount = 2;
                         ufo.rotationSpeed = 10;
                         spaceCount = 0;
@@ -659,14 +667,14 @@
             } else if (gameState === 'playing') {
                 if (currentTime - lastTouchTime < 300 && touchCount === 1) {
                     if (ufo.jumpCount < 2) {
-                        ufo.velocityY = -400;
+                        ufo.velocityY = -450 * 1.3; // 2단 점프는 더 높게
                         ufo.jumpCount = 2;
                         ufo.rotationSpeed = 10;
                         touchCount = 0;
                     }
                 } else {
                     if (ufo.jumpCount < 1) {
-                        ufo.velocityY = -400;
+                        ufo.velocityY = -450; // 1단 점프 높이 증가
                         ufo.jumpCount = 1;
                         touchCount = 1;
                         lastTouchTime = currentTime;
